@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Holt ScummC (auf festen Commit gepinnt), baut den Compiler und kompiliert game/.
-# Benötigt: gcc, make, bison, flex, git, iconv
+# Benötigt: gcc, make, bison >= 2.7, flex, git, iconv
+# macOS: brew install bison  (wird automatisch gefunden)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,9 +21,25 @@ for f in vendor/scummc/man/tools/*.xml; do
   ln -sf "tools/$(basename "$f")" "vendor/scummc/man/$(basename "$f")"
 done
 
+# ScummC braucht Bison >= 2.7. macOS liefert nur Bison 2.3 mit; das von
+# Homebrew ist "keg-only" und liegt nicht im PATH, also selbst einhängen.
+if command -v brew >/dev/null 2>&1; then
+  BREW_BISON="$(brew --prefix bison 2>/dev/null)/bin"
+  if [ -x "$BREW_BISON/bison" ]; then
+    export PATH="$BREW_BISON:$PATH"
+  fi
+fi
+if [ "$(uname)" = Darwin ] && bison --version | head -1 | grep -q ' 2\.[0-6]\b\| 2\.[0-6]$'; then
+  echo "Bison ist zu alt ($(bison --version | head -1))." >&2
+  echo "Bitte installieren:  brew install bison" >&2
+  exit 1
+fi
+
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+
 # Die Binaries landen in vendor/scummc/build.<host>/<target>/
 if ! ls vendor/scummc/build.*/*/scc >/dev/null 2>&1; then
-  (cd vendor/scummc && ./configure && make -j"$(nproc)")
+  (cd vendor/scummc && ./configure && make -j"$JOBS")
 fi
 
 make -C game

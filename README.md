@@ -12,7 +12,9 @@ lässt er dich an die Schatztruhe.
 ```bash
 ./build.sh
 ```
-Benötigt gcc, make, bison, flex, git und iconv. Das Skript holt und baut ScummC
+Benötigt gcc, make, bison ≥ 2.7, flex, git und iconv. Unter macOS vorher
+`brew install bison` – das Apple-Bison 2.3 ist zu alt, `build.sh` findet das
+Homebrew-Bison automatisch. Das Skript holt und baut ScummC
 und kompiliert danach `game/` (alternativ `make -C game`).
 
 Ergebnis: `game/build/tentacle.000` und `game/build/tentacle.001`. In ScummVM
