@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Holt ScummC (auf festen Commit gepinnt), baut den Compiler und kompiliert game/.
-# Benötigt: gcc, make, bison, flex, git
+# Benötigt: gcc, make, bison, flex, git, iconv
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -13,8 +13,21 @@ if [ ! -d vendor/scummc ]; then
 fi
 git -C vendor/scummc checkout -q "$SCUMMC_COMMIT"
 
-if [ ! -x vendor/scummc/build/scc ] && [ ! -x vendor/scummc/scc ]; then
+# Am gepinnten Commit liegen die Man-Pages in man/tools/, das Makefile sucht
+# die XML-Dateien für die eingebaute Hilfe (scc_help.h usw.) aber in man/.
+# Ohne diese Links bricht der Build mit "No rule to make target 'scc_help.h'" ab.
+for f in vendor/scummc/man/tools/*.xml; do
+  ln -sf "tools/$(basename "$f")" "vendor/scummc/man/$(basename "$f")"
+done
+
+# Die Binaries landen in vendor/scummc/build.<host>/<target>/
+if ! ls vendor/scummc/build.*/*/scc >/dev/null 2>&1; then
   (cd vendor/scummc && ./configure && make -j"$(nproc)")
 fi
 
-echo "ScummC ist gebaut. Nächster Schritt (Spiel kompilieren) folgt, sobald game/ existiert."
+make -C game
+
+echo
+echo "Fertig: game/build/tentacle.000 und game/build/tentacle.001"
+echo "In ScummVM über 'Spiel hinzufügen' den Ordner game/build wählen"
+echo "(wird als Day of the Tentacle erkannt)."

@@ -1,0 +1,389 @@
+/* Ape Island - der Strand
+ *
+ * Aufgebaut nach dem Beispiel "road" aus ScummC (examples/road/road.scc).
+ *
+ * Rätselkette:
+ *   1. Palme drücken/ziehen  -> eine Kokosnuss fällt in den Sand
+ *   2. Kokosnuss nehmen      -> landet im Inventar
+ *   3. Kokosnuss an Affe geben -> der Affe ist abgelenkt
+ *   4. Schatztruhe öffnen    -> Ende
+ *
+ * Quelltext ist UTF-8; das Makefile wandelt ihn vor dem Kompilieren nach
+ * ISO-8859-1, weil die Schrift (vera.bmp) Latin-1 kodiert ist.
+ */
+
+// Alle Variablen, die die Engine selbst benutzt (VAR_EGO, VAR_ROOM, ...)
+#include <scummVars6.s>
+#include "common.sch"
+
+// Spielzustand: globale Bit-Variablen überleben Raumwechsel und Spielstände.
+bit introDone, nutFallen, monkeyFed, chestOpened, monkeyHello;
+
+// Der Affe ist ein Raumobjekt (mit Bildern), zum Sprechen braucht SCUMM aber
+// einen Actor. Darum gibt es einen unsichtbaren Actor ohne Costume, der an
+// der Stelle des Affen steht und dessen Texte ausgibt.
+actor monkeyVoice;
+#define MONKEY_COLOR 14
+
+room Beach {
+    // Raumparameter: Hintergrundbild und begehbare Fläche
+    image = "beach.bmp";
+    boxd = "beach.box";
+    trans = 0;
+
+    // Vorwärtsdeklarationen, damit die Verb-Handler sich gegenseitig
+    // referenzieren können.
+    object coconut;
+    object nutTop;
+    object monkey;
+    object chest;
+
+    object palm {
+        x = 40;
+        y = 40;
+        w = 40;
+        h = 76;
+        hs_x = 10;
+        hs_y = 84;
+        dir = EAST;
+        name = "Palme";
+
+        verb(int vrb, int objA, int objB) {
+        case LookAt:
+            if(nutFallen)
+                egoSay("Eine Kokospalme.\wDie andere Nuss hängt bombenfest.");
+            else
+                egoSay("Eine Kokospalme.\wGanz oben hängen zwei Kokosnüsse.");
+            return;
+
+        case Push:
+        case Pull:
+            if(nutFallen) {
+                egoSay("Die andere Nuss rührt sich nicht.");
+                return;
+            }
+            cutscene() {
+                egoSay("Hau... ruck!");
+                waitForMessage();
+                // Krone ohne lose Nuss zeigen, Nuss im Sand einblenden
+                setObjectState(nutTop, 1);
+                setObjectClass(nutTop, [ 0x80 + ClassUntouchable ]);
+                setObjectState(coconut, 1);
+                setObjectClass(coconut, [ ClassUntouchable ]);
+                nutFallen = 1;
+                egoSay("Da ist eine Kokosnuss heruntergefallen.");
+                waitForMessage();
+            }
+            return;
+
+        case PickUp:
+            egoSay("Die ganze Palme? So stark bin ich nicht.");
+            return;
+
+        case Use:
+            if(objB == coconut)
+                egoSay("Die Nuss wieder hochwerfen? Nein danke.");
+            else
+                egoSay("Klettern kann ich nicht.\wAber vielleicht kann ich sie schütteln.");
+            return;
+        }
+    }
+
+    // Die lose Kokosnuss oben in der Krone. Zustand 0 = Nuss hängt
+    // (Hintergrundbild), Zustand 1 = Krone ohne diese Nuss.
+    object nutTop {
+        x = 64;
+        y = 24;
+        w = 16;
+        h = 16;
+        hs_x = -14;
+        hs_y = 100;
+        dir = NORTH;
+        name = "Kokosnuss";
+        states = {
+            { -14, 100, "nut_top.bmp" }
+        };
+        state = 0;
+
+        verb(int vrb, int objA, int objB) {
+        case LookAt:
+            egoSay("Eine Kokosnuss. Ziemlich weit oben.");
+            return;
+        case PickUp:
+            egoSay("Da komme ich nicht ran.\wVielleicht kann ich sie herunterschütteln.");
+            return;
+        }
+    }
+
+    // Die heruntergefallene Kokosnuss. Anfangs unsichtbar und nicht
+    // anklickbar (ClassUntouchable), wird von der Palme aktiviert.
+    object coconut {
+        x = 40;
+        y = 120;
+        w = 16;
+        h = 16;
+        hs_x = 8;
+        hs_y = 10;
+        dir = WEST;
+        name = "Kokosnuss";
+        class = { ClassUntouchable };
+        states = {
+            { 8, 10, "nut_ground.bmp" }
+        };
+        state = 0;
+
+        verb(int vrb, int objA, int objB) {
+        // Inventar-Icon setzen (wird vom inventoryHandler aufgerufen)
+        case Icon:
+            startScript2(vrb, [ ResRoom::coconut, objA, objB ]);
+            return;
+        // Wort zwischen Verb und zweitem Objekt im Satz
+        case Preposition:
+            if(vrb == Give)
+                sntcPrepo[0] = "an";
+            else
+                sntcPrepo[0] = "mit";
+            return;
+
+        case LookAt:
+            if(getObjectOwner(objA) == VAR_EGO)
+                egoSay("Schwer, haarig und voller Milch.");
+            else
+                egoSay("Eine Kokosnuss. Frisch von der Palme.");
+            return;
+
+        case PickUp:
+            if(getObjectOwner(objA) == VAR_EGO)
+                return;
+            pickupObject(objA, VAR_ROOM);
+            egoSay("Hab sie.");
+            return;
+
+        case Use:
+            egoSay("Ich habe keinen Hunger auf Kokos.");
+            return;
+        }
+    }
+
+    object chest {
+        x = 200;
+        y = 92;
+        w = 32;
+        h = 32;
+        hs_x = 16;
+        hs_y = 40;
+        dir = NORTH;
+        name = "Schatztruhe";
+        class = { Openable };
+        // Zustand 0 = zu (Hintergrund), 1 = offen
+        states = {
+            { 16, 40, "chest_open.bmp" }
+        };
+        state = 0;
+
+        verb(int vrb, int objA, int objB) {
+        case LookAt:
+            if(chestOpened)
+                egoSay("Gold, so weit das Auge reicht!");
+            else if(monkeyFed)
+                egoSay("Eine Schatztruhe. Und keiner passt mehr auf.");
+            else
+                egoSay("Eine Schatztruhe!\wDer Affe lässt sie nicht aus den Augen.");
+            return;
+
+        case Open:
+            if(chestOpened) {
+                egoSay("Ist schon offen.");
+                return;
+            }
+            unless(monkeyFed) {
+                cutscene() {
+                    actorSay(monkeyVoice, "IIIEEEK! UH-UH-AAH-AAH!");
+                    waitForMessage();
+                    egoSay("Schon gut, schon gut!\wDer Affe lässt mich nicht an die Truhe.");
+                    waitForMessage();
+                }
+                return;
+            }
+            cutscene() {
+                setObjectState(chest, 1);
+                chestOpened = 1;
+                egoSay("Gold! Der Schatz von Ape Island!");
+                waitForMessage();
+                actorSay(monkeyVoice, "*mampf* *schmatz*");
+                waitForMessage();
+                egoSay("Danke, kleiner Freund.\wENDE - Danke fürs Spielen!");
+                waitForMessage();
+            }
+            return;
+
+        case Close:
+            if(chestOpened)
+                egoSay("Ich will das Gold noch ein bisschen anschauen.");
+            else
+                egoSay("Ist schon zu.");
+            return;
+
+        case PickUp:
+            egoSay("Viel zu schwer.");
+            return;
+        }
+    }
+
+    object monkey {
+        x = 248;
+        y = 72;
+        w = 40;
+        h = 48;
+        hs_x = -12;
+        hs_y = 52;
+        dir = EAST;
+        name = "Affe";
+        // Zustand 1 = wütend, 2 = futtert zufrieden
+        states = {
+            { -12, 52, "monkey_angry.bmp" },
+            { -12, 52, "monkey_happy.bmp" }
+        };
+        state = 1;
+
+        verb(int vrb, int objA, int objB) {
+            char* sentence;
+        case LookAt:
+            if(monkeyFed)
+                egoSay("Er ist mit seiner Kokosnuss beschäftigt.");
+            else
+                egoSay("Ein Affe. Er bewacht die Truhe\wund fletscht die Zähne.");
+            return;
+
+        case Give:
+            unless(objB == coconut) {
+                egoSay("Das will er nicht.");
+                return;
+            }
+            cutscene() {
+                egoSay("Hier, für dich.");
+                waitForMessage();
+                // Nuss aus dem Inventar entfernen, Affenbild wechseln
+                setObjectOwner(coconut, 0);
+                setObjectState(monkey, 2);
+                monkeyFed = 1;
+                actorSay(monkeyVoice, "Uh-uh! *mampf*");
+                waitForMessage();
+                egoSay("Jetzt ist er abgelenkt.");
+                waitForMessage();
+            }
+            return;
+
+        case TalkTo:
+            if(monkeyFed) {
+                cutscene() {
+                    egoSay("Schmeckt's?");
+                    waitForMessage();
+                    actorSay(monkeyVoice, "*schmatz*");
+                    waitForMessage();
+                }
+                return;
+            }
+            cutscene(1) {
+                egoSay("Hallo, kleiner Affe.");
+                waitForMessage();
+                unless(monkeyHello) {
+                    actorSay(monkeyVoice, "Uuh-uuh-AAH-AAH!");
+                    waitForMessage();
+                    monkeyHello = 1;
+                }
+            }
+            // Dialogauswahl mit den Hilfsskripten aus common.scc
+            dialogLoop: while(1) {
+                sentence[0] = "Darf ich mal in die Truhe schauen?";
+                ResRoom::dialogAdd(sentence);
+                sentence = 0;
+                sentence[0] = "Hast du Hunger?";
+                ResRoom::dialogAdd(sentence);
+                sentence = 0;
+                sentence[0] = "Tschüss.";
+                ResRoom::dialogAdd(sentence);
+                sentence = 0;
+                ResRoom::dialogStart(BEASTY_DIM_COLOR, BEASTY_COLOR);
+                do breakScript() while(selectedSentence < 0);
+                ResRoom::dialogHide();
+                cutscene() {
+                    sentence = dialogList[selectedSentence];
+                    egoSay("%s{sentence}");
+                    waitForMessage();
+                    switch(selectedSentence) {
+                    case 0:
+                        actorSay(monkeyVoice, "IIIEEEK!");
+                        waitForMessage();
+                        egoSay("Ich nehme das als Nein.");
+                        break;
+                    case 1:
+                        actorSay(monkeyVoice, "Uh-uh! Uh-uh!");
+                        waitForMessage();
+                        egoSay("Er schaut sehnsüchtig zur Palme hoch.");
+                        break;
+                    case 2:
+                        actorSay(monkeyVoice, "Uh.");
+                        break;
+                    }
+                    waitForMessage();
+                }
+                ResRoom::dialogClear(1);
+                if(selectedSentence == 2) break dialogLoop;
+            }
+            ResRoom::dialogEnd();
+            return;
+
+        case PickUp:
+            egoSay("Der beißt bestimmt.");
+            return;
+
+        case Push:
+        case Pull:
+            egoSay("Lieber nicht. Der hat scharfe Zähne.");
+            return;
+        }
+    }
+
+    // Wird beim Betreten des Raums ausgeführt
+    local script entry() {
+        // Unsichtbarer Sprecher für den Affen
+        setCurrentActor(monkeyVoice);
+        initActor();
+        setActorName("Affe");
+        setActorTalkColor(MONKEY_COLOR);
+        setActorIgnoreBoxes();
+        setActorTalkPos(0, -50);
+        actorObject[monkeyVoice] = monkey;
+        putActorAt(monkeyVoice, 268, 118, Beach);
+        setCurrentActor(VAR_EGO);
+
+        // Textausgabe über dem Kopf des Spielers
+        egoPrintBegin();
+        actorPrintOverhead();
+        actorPrintEnd();
+
+        unless(introDone) {
+            putActorAt(VAR_EGO, 10, 120, Beach);
+            try {
+                walkActorTo(hero, 120, 118);
+                waitForActor(hero);
+                egoSay("Ape Island!\wHier soll ein Schatz versteckt sein.");
+                waitForMessage();
+            } override {
+                if(VAR_OVERRIDE) {
+                    putActorAt(VAR_EGO, 120, 118, Beach);
+                    setActorStanding();
+                }
+            }
+            introDone = 1;
+        }
+
+        ResRoom::showVerbs(1);
+        ResRoom::showCursor();
+    }
+
+    local script exit() {
+        ResRoom::hideCursor();
+    }
+}
